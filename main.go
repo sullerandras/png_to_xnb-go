@@ -2,14 +2,18 @@ package main
 
 import (
 	"encoding/binary"
+	"path/filepath"
 	"fmt"
 	"image"
 	"image/draw"
 	_ "image/png" // register the PNG format with the image package
 	_ "image/gif" // register the GIF format with the image package
 	_ "image/jpeg" // register the JPG format with the image package
+	"io/ioutil"
 	"log"
 	"os"
+	"reflect"
+	"strings"
 )
 
 const TEXTURE_2D_TYPE string = "Microsoft.Xna.Framework.Content.Texture2DReader, Microsoft.Xna.Framework.Graphics, Version=4.0.0.0, Culture=neutral, PublicKeyToken=842cf8be1de50553"
@@ -65,6 +69,7 @@ func writeData(png image.Image, outfile *os.File) error {
 	case *image.NRGBA:
 		binary.Write(outfile, binary.LittleEndian, img.Pix)
 	default:
+		fmt.Println("Wrong image format:", reflect.TypeOf(png))
 		converted := image.NewNRGBA(image.Rect(0, 0, png.Bounds().Dx(), png.Bounds().Dy()))
 		draw.Draw(converted, converted.Bounds(), png, png.Bounds().Min, draw.Src)
 		binary.Write(outfile, binary.LittleEndian, converted.Pix)
@@ -82,6 +87,7 @@ func uncompressedFileSize(png image.Image) uint32 {
 }
 
 func pngToXnb(pngFile, xnbFile string, compressed, reach bool) error {
+	log.Println("Converting", pngFile, "to", xnbFile)
 	infile, err := os.Open(pngFile)
 	defer infile.Close()
 	if err != nil {
@@ -118,10 +124,80 @@ func pngToXnb(pngFile, xnbFile string, compressed, reach bool) error {
 	return nil
 }
 
+func isDirectory(path string) (bool, error) {
+	fileInfo, err := os.Stat(path)
+	return fileInfo.IsDir(), err
+}
+
+func pngFileNameToXnb(pngFile string) string {
+	extension := filepath.Ext(pngFile)
+	return pngFile[0:len(pngFile)-len(extension)] + ".xnb"
+}
+
+func pngToDirectory(pngFile, xnbDir string, compressed, reach bool) error {
+	xnbFile := xnbDir + "/" + filepath.Base(pngFileNameToXnb(pngFile))
+	return pngToXnb(pngFile, xnbFile, compressed, reach)
+}
+
+func pngsToDirectory(pngDir, xnbDir string, compressed, reach bool) error {
+	files, err := ioutil.ReadDir(pngDir)
+	if err != nil {
+		return err
+	}
+
+	for _, f := range files {
+		extension := strings.ToLower(filepath.Ext(f.Name()))
+		if extension == ".png" {
+			pngFile := pngDir + "/" + f.Name()
+			err = pngToDirectory(pngFile, xnbDir, compressed, reach)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func execute(pngFile, xnbFile string, compressed, reach bool) error {
+	pngFileIsDir, err := isDirectory(pngFile)
+	if err != nil {
+		return err
+	}
+	if pngFileIsDir {
+		if len(xnbFile) == 0 {
+			return fmt.Errorf("Must provide xnb_file when png_file is a directory!")
+		}
+		return pngsToDirectory(pngFile, xnbFile, compressed, reach)
+	} else {
+		if len(xnbFile) == 0 {
+			return pngToXnb(pngFile, pngFileNameToXnb(pngFile), compressed, reach)
+		}
+		xnbFileIsDir, err := isDirectory(xnbFile)
+		if err != nil {
+			return err
+		}
+		if xnbFileIsDir {
+			return pngToDirectory(pngFile, xnbFile, compressed, reach)
+		}
+		return pngToXnb(pngFile, xnbFile, compressed, reach)
+	}
+
+}
+
 func main() {
-	err := pngToXnb(os.Args[1], os.Args[2], false, true)
+	if len(os.Args) == 1 {
+		fmt.Println("Save images as XNB.")
+		fmt.Println("Usage:", os.Args[0], "png_file [xnb_file]")
+		os.Exit(1)
+	}
+	pngFile := os.Args[1]
+	var xnbFile string
+	if len(os.Args) >= 3 {
+		xnbFile = os.Args[2]
+	}
+	err := execute(pngFile, xnbFile, false, true)
 	if err != nil {
 		log.Println(err)
-		os.Exit(1)
+		os.Exit(2)
 	}
 }
