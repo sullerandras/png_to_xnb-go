@@ -52,6 +52,17 @@ func writeString(outfile *os.File, s string) {
 	writeChars(outfile, arr)
 }
 
+func writePixels(outfile *os.File, pixels []byte) {
+	for i := 0; i < len(pixels); i+=4 {
+		if pixels[i + 3] == 0 { // fully transparent
+			pixels[i + 0] = 0
+			pixels[i + 1] = 0
+			pixels[i + 2] = 0
+		}
+	}
+	binary.Write(outfile, binary.LittleEndian, pixels)
+}
+
 func writeData(png image.Image, outfile *os.File) error {
 	write7BitEncodedInt(outfile, 1)       // type-reader-count
 	writeString(outfile, TEXTURE_2D_TYPE) // type-reader-name
@@ -67,12 +78,12 @@ func writeData(png image.Image, outfile *os.File) error {
 
 	switch img := png.(type) {
 	case *image.NRGBA:
-		binary.Write(outfile, binary.LittleEndian, img.Pix)
+		writePixels(outfile, img.Pix)
 	default:
 		fmt.Println("Wrong image format:", reflect.TypeOf(png))
 		converted := image.NewNRGBA(image.Rect(0, 0, png.Bounds().Dx(), png.Bounds().Dy()))
 		draw.Draw(converted, converted.Bounds(), png, png.Bounds().Min, draw.Src)
-		binary.Write(outfile, binary.LittleEndian, converted.Pix)
+		writePixels(outfile, converted.Pix)
 	}
 	return nil
 }
